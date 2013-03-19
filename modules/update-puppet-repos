@@ -1,0 +1,59 @@
+#!/usr/bin/env python
+
+### THIS FILE IS MANAGED BY PUPPET
+### <%= file %>
+
+import ConfigParser
+import subprocess
+import urllib2
+import sys
+try:
+    import json
+except ImportError:
+    import simplejson as json
+
+conf_url   = 'http://gitweb.example.com/git/gittags.conf;hb=HEAD'
+configfile = '/etc/gittags.conf'
+
+def get_latest_gittags():
+    """ attempt to get the latest gittags.conf file from repo, and drop it in the appropriate location on the server """
+    try:
+        gittags = urllib2.urlopen(conf_url)
+        config = open(configfile,'w')
+        config.seek(0)
+        config.write(gittags.read())
+        config.close()
+    except urllib2.URLError:
+        pass
+
+def runme(cmd):
+    """ run commands in a subprocess and wait for the return code. """
+    proc = subprocess.Popen(cmd, \
+            shell=True, \
+            stdin=subprocess.PIPE, \
+            stdout=subprocess.PIPE, \
+            stderr=subprocess.PIPE)
+    output = proc.communicate()
+
+    return proc.returncode, output
+
+if __name__ == "__main__":
+    get_latest_gittags()
+    config = ConfigParser.ConfigParser()
+    config.read(configfile)
+
+    env_status = {}
+    for env in config.sections():
+        try:
+            release = config.get(env, 'tag')
+            cmd = 'cd /etc/puppet/env/%s && git reset --hard && git fetch && git fetch --tags && git checkout %s' % (env, release)
+        except ConfigParser.NoOptionError:
+            release = config.get(env, 'branch')
+            cmd = 'cd /etc/puppet/env/%s && git reset --hard && git fetch && git fetch --tags && git checkout %s && git pull' % (env, release)
+        return_code, output = runme(cmd)
+        if return_code == 0:
+            env_status[env] = 'successfully updated to tag/branch %s' % release
+        else:
+            env_status[env] = 'FAILED to update to tag/branch %s' % release
+
+    print json.dumps(env_status)
